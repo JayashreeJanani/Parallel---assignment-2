@@ -75,6 +75,48 @@ void run_serial(int fun_id, double tol)
     printf("Runtime (seconds)    :%.6f\n",end-start);
 }
 
+//==============================================================
+//static part
+
+void run_static(int rank, int size, int fun_id, double tol)
+{
+    int K=64;
+    double h = 1.0/K;
+
+    double local_sum =0.0;
+    int local_accepted = 0;
+
+    double start = MPI_Wtime();
+
+    for(int i = rank; i < K; i+=size){
+
+        double a = i * h;
+        double b = (i + 1) * h;
+
+        local_sum += adaptive_simpson(a,b,tol/K, fun_id, &local_accepted);
+    }
+
+    double global_sum = 0.0;
+    int global_accepted = 0;
+
+    MPI_Reduce(&local_sum,&global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_accepted, &global_accepted, 1, MPI_INT,MPI_SUM, 0, MPI_COMM_WORLD);
+
+    double end = MPI_Wtime();
+
+    if(rank == 0){
+
+        printf("Mode 1: Static MPI Decomposition \n");
+        printf("Function ID            :%d\n", fun_id);
+        printf("Tolerance              :%.10g\n", tol);
+        printf("K                      :%d\n",K);
+        printf("Integral Result        :%.12f\n", global_sum);
+        printf("Accepted Intervals     :%d\n",global_accepted);
+        printf("Runtime (seconds)      :%.6f\n",end-start);
+    }
+
+}
+
 int main(int argc, char **argv){
      MPI_Init(&argc, &argv);
 
@@ -108,6 +150,10 @@ int main(int argc, char **argv){
             if (rank == 0){
             run_serial(funId, tol);
             }
+        }
+        else if(mode == 1)
+        {
+            run_static(rank, size, funId, tol);
         }
         
 
