@@ -57,27 +57,60 @@ double adaptive_simpson(double a, double b, double tol, int fun_id, int *accepte
     return adaptive_simpson(a,m, tol/2.0, fun_id, accepted)+ adaptive_simpson(m,b, tol/2.0, fun_id, accepted);
 
 }
+//================================================
+//serial part
+
+void run_serial(int fun_id, double tol)
+{
+    int accepted = 0;
+    double start = MPI_Wtime();
+    double result = adaptive_simpson(0.0, 1.0, tol, fun_id, &accepted);
+    double end = MPI_Wtime();
+
+    printf("Mode 0: Serial Baseline\n");
+    printf("Function ID          :%d\n", fun_id);
+    printf("Tolerance            :%10g\n",tol);
+    printf("Integral Result      :%.12f\n",result);
+    printf("Accepted Intervals   :%d\n",accepted);
+    printf("Runtime (seconds)    :%.6f\n",end-start);
+}
 
 int main(int argc, char **argv){
-    MPI_Init(&argc, &argv);
+     MPI_Init(&argc, &argv);
 
         int rank = 0;
         int size = 0;
         char processor_name[MPI_MAX_PROCESSOR_NAME];
         int name_len = 0;
-        //fun id from the mpi run
-        int funId = atoi(argv[1]);
-        
+        int funId = 0;
+        int mode = 0;
+        double tol = 0.0;
+
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         MPI_Comm_size(MPI_COMM_WORLD, &size);
         MPI_Get_processor_name(processor_name, &name_len);
 
-        if (rank == 0){
-            double val = simpson(0.0, 1.0, funId);
-            printf("Simpson estimate = %f/n", val);
+        if (argc < 4) {
+            if (rank == 0) {
+                fprintf(stderr, "Usage: %s <function_id> <mode> <tolerance>\n", argv[0]);
+                fprintf(stderr, "Example: %s 0 0 1e-6\n", argv[0]);
+            }
+            MPI_Finalize();
+            return 1;
         }
 
+        // fun id, execution mode, and tolerance from the command line
+        funId = atoi(argv[1]);
+        mode = atoi(argv[2]);
+        tol = atof(argv[3]);
+
+        if(mode == 0){
+            if (rank == 0){
+            run_serial(funId, tol);
+            }
+        }
+        
+
     MPI_Finalize();
-    return 0;
 
 }
