@@ -2,6 +2,23 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
+
+//tags
+#define TAG_REQUEST 1
+#define TAG_WORK 2
+#define TAG_RESULT 3
+// #define TAG_NEWTASK 4
+#define TAG_STOP 4
+
+#define MAX_TASKS 100000
+//============================================================================
+
+typedef struct{
+    double left;
+    double right;
+    double tol;
+}Task;
+//============================================================================
 //1.2. f(x) function-->for the simpson formula function
 double f(double x, int fun_id){
     switch(fun_id){
@@ -116,7 +133,142 @@ void run_static(int rank, int size, int fun_id, double tol)
     }
 
 }
+//==============================================================
+int process_task(Task *task, int fun_id, double *result, Task *new_task, int *accepted){
+    double a = task->left;
+    double b = task->right;
+    double tol = task->tol;
+    double m  = (a+b) /2.0;
 
+    double S = simpson(a, b, fun_id);//s(a,b)
+    double S1 = simpson(a,m,fun_id);//S(a,m)
+    double S2 = simpson(m,b,fun_id);//s(m,b)
+
+    double error = fabs(S1 + S2 - S);
+
+    if(error <15.0 *tol)
+    {
+        *accepted =1;
+        *result = (S1 + S2 + (S1 + S2 - S)) / 15.0;
+        return 1; //checks whether task is accepted
+    }
+
+    *accepted = 0;
+
+    task->right = m;
+    task->tol = tol / 2.0;
+
+    new_task->left = m;
+    new_task->right = b;
+    new_task->tol = tol / 2.0;
+
+    *result = 0.0;
+
+    return 0;
+    
+}
+//=============================================================
+void run_dynamic(int rank, int size, int func_id, double tol)
+{
+    Task queue[MAX_TASKS];
+    int front = 0, rear = 0;
+
+    double total_result = 0.0;
+    int total_accepted = 0;
+
+    int workers_done = 0;
+    int tasks_sent = 0;
+    int tasks_completed = 0;
+
+    int K = 64;
+    double h = 1.0 / K;
+
+    double start = MPI_Wtime();
+
+    if (rank == 0)
+    {
+        // create initial coarse tasks
+        for (int i = 0; i < K; i++)
+        {
+            queue[rear].left = i * h;
+            queue[rear].right = (i + 1) * h;
+            queue[rear].tol = tol / K;
+            rear++;
+        }
+
+        while (workers_done < size - 1)
+        {
+            MPI_Status status;
+            MPI_Probe(MPI_ANY_SOURCE, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+            int worker = status.MPI_SOURCE;
+
+            if (status.MPI_TAG == TAG_REQUEST)
+            {
+                MPI_Recv(NULL, 0, MPI_CHAR, worker, TAG_REQUEST, MPI_COMM_WORLD, &status);
+
+                if (front < rear)
+                {
+                    MPI_Send(&queue[front], sizeof(Task), MPI_BYTE, worker, TAG_WORK, MPI_COMM_WORLD);
+                    front++;
+                    tasks_sent++;
+                }
+                else if (tasks_completed == K)
+                {
+                    MPI_Send(NULL, 0, MPI_CHAR, worker, TAG_STOP, MPI_COMM_WORLD);
+                    workers_done++;
+                }
+            }
+            else if (status.MPI_TAG == TAG_RESULT)
+            {
+                double data[2];
+                MPI_Recv(data, 2, MPI_DOUBLE, worker, TAG_RESULT, MPI_COMM_WORLD, &status);
+
+                total_result += data[0];
+                total_accepted += (int)data[1];
+                tasks_completed++;
+            }
+        }
+
+        double end = MPI_Wtime();
+
+        printf("Mode 2: Dynamic MPI Master/Worker\n");
+        printf("Function ID        : %d\n", func_id);
+        printf("Tolerance          : %.10g\n", tol);
+        printf("K                  : %d\n", K);
+        printf("Integral Result    : %.12f\n", total_result);
+        printf("Accepted Intervals : %d\n", total_accepted);
+        printf("Runtime (seconds)  : %.6f\n", end - start);
+    }
+    else
+    {
+        while (1)
+        {
+            MPI_Send(NULL, 0, MPI_CHAR, 0, TAG_REQUEST, MPI_COMM_WORLD);
+
+            MPI_Status status;
+            MPI_Probe(0, MPI_ANY_TAG, MPI_COMM_WORLD, &status);
+
+            if (status.MPI_TAG == TAG_STOP)
+            {
+                MPI_Recv(NULL, 0, MPI_CHAR, 0, TAG_STOP, MPI_COMM_WORLD, &status);
+                break;
+            }
+
+            Task task;
+            MPI_Recv(&task, sizeof(Task), MPI_BYTE, 0, TAG_WORK, MPI_COMM_WORLD, &status);
+
+            int accepted = 0;
+            double result = adaptive_simpson(task.left, task.right, task.tol, func_id, &accepted);
+
+            double data[2];
+            data[0] = result;
+            data[1] = (double)accepted;
+
+            MPI_Send(data, 2, MPI_DOUBLE, 0, TAG_RESULT, MPI_COMM_WORLD);
+        }
+    }
+}
 int main(int argc, char **argv){
      MPI_Init(&argc, &argv);
 
@@ -154,6 +306,10 @@ int main(int argc, char **argv){
         else if(mode == 1)
         {
             run_static(rank, size, funId, tol);
+        }
+        else if(mode == 2)
+        {
+            run_dynamic(rank, size, funId, tol);
         }
         
 
