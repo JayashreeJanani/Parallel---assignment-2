@@ -213,7 +213,7 @@ void run_dynamic(int rank, int size, int func_id, double tol)
                     front++;
                     tasks_sent++;
                 }
-                else if (tasks_completed == K)
+                else
                 {
                     MPI_Send(NULL, 0, MPI_CHAR, worker, TAG_STOP, MPI_COMM_WORLD);
                     workers_done++;
@@ -314,5 +314,7 @@ int main(int argc, char **argv){
         
 
     MPI_Finalize();
+
+    fflush(stdout);
 
 }
