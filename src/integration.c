@@ -391,11 +391,11 @@ int main(int argc, char **argv){
         }
         else if(mode == 1)
         {
-            run_static(rank, size, funId, tol);
+            run_dynamic(rank, size, funId, tol);//for assignment 3
         }
         else if(mode == 2)
         {
-            run_dynamic(rank, size, funId, tol);
+            run_hybrid(rank, size, funId, tol);//for assignment 3
         }
         
 
