@@ -2,7 +2,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <math.h>
-
+//Assignment 3=> combo of Assignment 2 and OpenMP
+#include <omp.h>
 //tags
 #define TAG_REQUEST 1
 #define TAG_WORK 2
@@ -182,7 +183,7 @@ void run_dynamic(int rank, int size, int func_id, double tol)
 
     int K = 64;
     double h = 1.0 / K;
-
+     
     double start = MPI_Wtime();
 
     if (rank == 0)
@@ -269,6 +270,91 @@ void run_dynamic(int rank, int size, int func_id, double tol)
         }
     }
 }
+//==============================================================
+//Assignment 3
+double adaptive_simpson_omp(double a, double b, double tol, int fun_id, int *accepted){
+    double m = (a+b) /2.0;
+    double S = simpson(a, b, fun_id);//s(a,b)
+    double S1 = simpson(a,m,fun_id);//S(a,m)
+    double S2 = simpson(m,b,fun_id);//s(m,b)
+
+    double cummulative_simpson = S1+S2-S;
+    double error = fabs(cummulative_simpson);
+
+    if( error < 15 * tol){
+        (*accepted)++;
+        return (S1 + S2 + cummulative_simpson) / 15.0;
+    }
+
+    double left_result = 0.0;
+    double right_result = 0.0;
+
+    #pragma omp parallel sections
+    {
+        #pragma omp section
+        {
+            left_result = adaptive_simpson_omp(a,m, tol/2.0, fun_id, accepted);
+        }
+        #pragma omp section
+        {
+            right_result = adaptive_simpson_omp(m,b, tol/2.0, fun_id, accepted);
+        }
+    }
+
+    return left_result + right_result;
+}
+//=============================================================
+void run_hybrid(int rank, int size, int func_id, double tol)
+{
+    int K = 64;
+    double h = 1.0 / K;
+
+    double local_sum = 0.0;
+    int local_accepted = 0;
+
+    double global_sum = 0.0;
+    int global_accepted = 0;
+
+    double start = MPI_Wtime();
+
+    for (int i = rank; i < K; i += size)
+    {
+        double a = i * h;
+        double b = (i + 1) * h;
+
+        double interval_result = 0.0;
+        int interval_accepted = 0;
+
+        #pragma omp parallel
+        {
+            #pragma omp single
+            {
+                interval_result = adaptive_simpson_omp(a, b, tol / K, func_id, &interval_accepted);
+            }
+        }
+
+        local_sum += interval_result;
+        local_accepted += interval_accepted;
+    }
+
+    MPI_Reduce(&local_sum, &global_sum, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
+    MPI_Reduce(&local_accepted, &global_accepted, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_WORLD);
+
+    double end = MPI_Wtime();
+
+    if (rank == 0)
+    {
+        printf("Mode 2: Hybrid MPI/OpenMP\n");
+        printf("Function ID            : %d\n", func_id);
+        printf("Tolerance              : %.10g\n", tol);
+        printf("K                      : %d\n", K);
+        printf("Integral Result        : %.12f\n", global_sum);
+        printf("Accepted Intervals     : %d\n", global_accepted);
+        printf("Runtime (seconds)      : %.6f\n", end - start);
+    }
+}
+//====================================================================================================================
+
 int main(int argc, char **argv){
      MPI_Init(&argc, &argv);
 
