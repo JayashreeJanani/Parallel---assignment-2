@@ -233,7 +233,7 @@ void run_dynamic(int rank, int size, int func_id, double tol)
 
         double end = MPI_Wtime();
 
-        printf("Mode 2: Dynamic MPI Master/Worker\n");
+        printf("Mode 1: Dynamic MPI Master/Worker\n");
         printf("Function ID        : %d\n", func_id);
         printf("Tolerance          : %.10g\n", tol);
         printf("K                  : %d\n", K);
@@ -272,34 +272,39 @@ void run_dynamic(int rank, int size, int func_id, double tol)
 }
 //==============================================================
 //Assignment 3
-double adaptive_simpson_omp(double a, double b, double tol, int fun_id, int *accepted){
-    double m = (a+b) /2.0;
-    double S = simpson(a, b, fun_id);//s(a,b)
-    double S1 = simpson(a,m,fun_id);//S(a,m)
-    double S2 = simpson(m,b,fun_id);//s(m,b)
+double adaptive_simpson_omp(double a, double b, double tol, int fun_id, int *accepted)
+{
+    double m = (a + b) / 2.0;
+    double S  = simpson(a, b, fun_id);
+    double S1 = simpson(a, m, fun_id);
+    double S2 = simpson(m, b, fun_id);
 
-    double cummulative_simpson = S1+S2-S;
-    double error = fabs(cummulative_simpson);
+    double error = fabs(S1 + S2 - S);
 
-    if( error < 15 * tol){
+    if (error < 15.0 * tol)
+    {
         (*accepted)++;
-        return (S1 + S2 + cummulative_simpson) / 15.0;
+        return S1 + S2 + (S1 + S2 - S) / 15.0;
     }
 
     double left_result = 0.0;
     double right_result = 0.0;
+    int left_accepted = 0;
+    int right_accepted = 0;
 
-    #pragma omp parallel sections
+    #pragma omp task shared(left_result)
     {
-        #pragma omp section
-        {
-            left_result = adaptive_simpson_omp(a,m, tol/2.0, fun_id, accepted);
-        }
-        #pragma omp section
-        {
-            right_result = adaptive_simpson_omp(m,b, tol/2.0, fun_id, accepted);
-        }
+        left_result = adaptive_simpson_omp(a, m, tol / 2.0, fun_id, &left_accepted);
     }
+
+    #pragma omp task shared(right_result)
+    {
+        right_result = adaptive_simpson_omp(m, b, tol / 2.0, fun_id, &right_accepted);
+    }
+
+    #pragma omp taskwait
+
+    *accepted += left_accepted + right_accepted;
 
     return left_result + right_result;
 }
